@@ -1,7 +1,6 @@
 import datetime
 import time
 import requests
-import random
 import praw
 
 # class for subreddit object
