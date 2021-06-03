@@ -1,24 +1,37 @@
 import datetime
 import requests
 import praw
+import json
 
 # class for subreddit object
-class subreddit_analyser:   
+class SubredditAnalyser:   
 
     # "run" function that takes the name of the subreddit and runs "collect" and "summarize" functions 
-    def run(self, name):
+    def run(self, name, limit):
         self.name = name
+        self.limit = limit
         self.collect()
         self.summarize()
 
     # "collect" function that takes the url of the subreddit and converts it to a dictionary, then to an array of posts
     def collect(self):
         self.posts = []
+        self.post_count = 0
+        limit_not_reached = True
         last_post_id = "null"
         while True:
             response = requests.get(f'https://www.reddit.com/r/{self.name}.json?after={last_post_id}', headers = {'User-agent': 'your bot 0.1'}).json()
-            self.posts.extend(response["data"]["children"]) # put posts in an array of dictionaries
             last_post_id = response["data"]["after"]
+            self.post_count += response["data"]["dist"]
+            if limit_not_reached:
+                self.posts.extend(response["data"]["children"]) # put posts in an array of dictionaries
+                if type(self.limit) is int:
+                    if len(self.posts) == self.limit:
+                        limit_not_reached = False
+                    elif len(self.posts) > self.limit:
+                        extra = len(self.posts) - self.limit
+                        del self.posts[-extra:]
+                        limit_not_reached = False
             if last_post_id == None:
                 break
             
@@ -27,7 +40,10 @@ class subreddit_analyser:
     def summarize(self):
 
         # print the number of posts in the subreddit
-        print(f"This subreddit contains {len(self.posts)} posts.")
+        if type(self.limit) is int:
+            print(f"This subreddit contains {self.post_count} posts, but the user set the limit of submissions to analyse to {self.limit}.")
+        else:
+            print(f"This subreddit contains {self.post_count} posts.")
         
         
         # print the name of the post with the most upvote and how many upvotes it has
@@ -69,11 +85,12 @@ class subreddit_analyser:
 
 
 # class for sybmission object
-class submission_analyser:
+class SubmissionAnalyser:
 
     # "run" function that takes the url of the submission and runs "collect" and "summarize" functions 
-    def run(self, url):
+    def run(self, url, limit):
         self.url = url
+        self.limit = limit
         self.collect()
         self.summarize()
 
@@ -84,14 +101,19 @@ class submission_analyser:
         self.data = response[0]["data"]["children"][0]["data"]
 
         # setting up praw to use it later in the "summarize" function
-        client_info = open('client info', 'r').readlines()
+        f = open('credentials.json')
+        client_info = json.load(f)
         reddit = praw.Reddit(
-            client_id = client_info[0].replace('\n', ''),
-            client_secret = client_info[1],
+            client_id = client_info["client_id"],
+            client_secret = client_info["client_secret"],
             user_agent = "user_agent.0.1.0",
         )
         self.submission = reddit.submission(url = self.url)
         self.submission.comments.replace_more(limit=None)
+        if type(self.limit) is int:
+            self.comments = self.submission.comments.list()[:self.limit]
+        else:
+            self.comments = self.submission.comments.list()
 
     # "summarize" function that prints important data
     def summarize(self):
@@ -128,15 +150,18 @@ class submission_analyser:
 
 
         # Printing the amount of comments for the submission
-        print(f"This submission has {str(self.data['num_comments'])} comments.")
+        if type(self.limit) is int:
+            print(f"This submission has {str(self.data['num_comments'])} comments, but the user set the limit of comments to analyse to {self.limit}.")
+        else:
+            print(f"This submission has {str(self.data['num_comments'])} comments.")
         
 
         # Printing comment with most awards
-        if len(self.submission.comments.list()) != 0:
+        if len(self.comments) != 0:
             comments_bodies = []
             comments_awards = []
             # getting award count for all comments
-            for comment in self.submission.comments.list():
+            for comment in self.comments:
                 comments_bodies.append(comment.body)
                 response = requests.get(f'https://www.reddit.com/api/info.json?id=t1_{comment.id}&utm_source=reddit&utm_medium=usertext&utm_name=redditdev&utm_content=t1_{comment.id}', headers = {'User-agent': 'your bot 0.1'}).json()
                 comments_awards.append(response["data"]["children"][0]["data"]["total_awards_received"])
@@ -149,10 +174,10 @@ class submission_analyser:
 
 
         # printing all comments that have the most upvotes if they all have that same number
-        if len(self.submission.comments.list()) != 0:
-            max_ups = max(comment.score for comment in self.submission.comments.list())
+        if len(self.comments) != 0:
+            max_ups = max(comment.score for comment in self.comments)
             if max_ups != 0:
-                for comment in self.submission.comments.list():
+                for comment in self.comments:
                     if comment.score == max_ups:
                         print(f'The comment with the most upvotes is: "{comment.body}"')
 
@@ -164,16 +189,34 @@ def main():
         # asking the user to choose job to do, either subreddit or submission/post, and then running the job
         job_type = input("Enter Job Type(Subreddit/Submission): ")
         if job_type.lower() == 'subreddit':
-            sr_name = input("Enter SubReddit Name: ")
-            subreddit = subreddit_analyser()
-            subreddit.run(sr_name)
+            sr_name = input("Enter subreddit Name: ")
+            while True:
+                limit = input("Enter number of submissions to analyse (leave blank for unlimited): ")
+                if limit.isnumeric():
+                    limit = int(limit)
+                    break
+                elif limit == '':
+                    break
+                else:
+                    print("Value must be a number or blank, please try again.")
+            subreddit = SubredditAnalyser()
+            subreddit.run(sr_name, limit)
             break
         elif job_type.lower() == 'submission' or job_type.lower() == 'post':
             submission_url = input("Enter submission/post url: ")
-            submission = submission_analyser()
-            submission.run(submission_url)
+            while True:
+                limit = input("Enter number of comments to analyse (leave blank for unlimited): ")
+                if limit.isnumeric():
+                    limit = int(limit)
+                    break
+                elif limit == '':
+                    break
+                else:
+                    print("Value must be a number or blank, please try again.")
+            submission = SubmissionAnalyser()
+            submission.run(submission_url, limit)
             break
         else:
-            print("Job type not defined, please try again.") # reasking the user to choose the job if choice  isnn't clear
+            print("Job type not defined, please try again.") # reasking the user to choose the job if choice  isn't clear
 if __name__ == '__main__':    
     main()
