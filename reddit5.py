@@ -35,7 +35,6 @@ class SubredditAnalyser:
             if last_post_id == None:
                 break
             
-
     # "summarize" function that prints important data
     def summarize(self):
 
@@ -88,9 +87,10 @@ class SubredditAnalyser:
 class SubmissionAnalyser:
 
     # "run" function that takes the url of the submission and runs "collect" and "summarize" functions 
-    def run(self, url, limit):
+    def run(self, url, limit, depth):
         self.url = url
         self.limit = limit
+        self.depth = depth
         self.collect()
         self.summarize()
 
@@ -110,10 +110,23 @@ class SubmissionAnalyser:
         )
         self.submission = reddit.submission(url = self.url)
         self.submission.comments.replace_more(limit=None)
-        if type(self.limit) is int:
-            self.comments = self.submission.comments.list()[:self.limit]
-        else:
+        self.comments = []
+
+        # recursive function that appends all comments within the depth set by the user to the "self.comments" list
+        def Comment_tree(current_level_comment_list, depth):
+            next_level_comments_list = []
+            for current_level_comment in current_level_comment_list:
+                print(current_level_comment.body)
+                self.comments.append(current_level_comment)
+                next_level_comments_list.extend(current_level_comment.replies)
+            if depth > 1:
+                Comment_tree(next_level_comments_list, depth - 1)
+
+        # adding all comments to the "self.comments" list if user set depth to 0, otherwise call the recusrive function "comment_tree"
+        if self.depth == 0:
             self.comments = self.submission.comments.list()
+        else:
+            Comment_tree(self.submission.comments, self.depth)
 
     # "summarize" function that prints important data
     def summarize(self):
@@ -194,11 +207,14 @@ def main():
                 limit = input("Enter number of submissions to analyse (leave blank for unlimited): ")
                 if limit.isnumeric():
                     limit = int(limit)
-                    break
+                    if limit < 0:
+                        print("Value must be a positive number or blank, please try again.")
+                    else:
+                        break
                 elif limit == '':
                     break
                 else:
-                    print("Value must be a number or blank, please try again.")
+                    print("Value must be a positive number or blank, please try again.")
             subreddit = SubredditAnalyser()
             subreddit.run(sr_name, limit)
             break
@@ -208,13 +224,26 @@ def main():
                 limit = input("Enter number of comments to analyse (leave blank for unlimited): ")
                 if limit.isnumeric():
                     limit = int(limit)
-                    break
+                    if limit < 0:
+                            print("Value must be a positive number or blank, please try again.")
+                    else:
+                        break
                 elif limit == '':
                     break
                 else:
-                    print("Value must be a number or blank, please try again.")
+                    print("Value must be a positive number or blank, please try again.")
+            while True:
+                depth = input("Enter depth of comments to analyse (type '0' for all comments): ")
+                if depth.isnumeric():
+                    depth = int(depth)
+                    if depth < 0:
+                        print("Value must be a positive number, please try again.")
+                    else:
+                        break
+                else:
+                    print("Value must be a positive number, please try again.")
             submission = SubmissionAnalyser()
-            submission.run(submission_url, limit)
+            submission.run(submission_url, limit, depth)
             break
         else:
             print("Job type not defined, please try again.") # reasking the user to choose the job if choice  isn't clear
