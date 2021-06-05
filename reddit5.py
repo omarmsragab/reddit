@@ -116,7 +116,6 @@ class SubmissionAnalyser:
         def Comment_tree(current_level_comment_list, depth):
             next_level_comments_list = []
             for current_level_comment in current_level_comment_list:
-                print(current_level_comment.body)
                 self.comments.append(current_level_comment)
                 next_level_comments_list.extend(current_level_comment.replies)
             if depth > 1:
