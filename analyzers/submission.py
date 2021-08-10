@@ -1,113 +1,139 @@
-import requests
-import praw
-import json
+import datetime
 
 # class for sybmission object
-class SubmissionAnalyser:
+class SubmissionAnalyzer:
 
     # "run" function that takes the url of the submission and runs "collect" and "summarize" functions 
-    def run(self, url, limit, depth):
-        self.url = url
-        self.limit = limit
-        self.depth = depth
+    def run(self, reddit, submission_id, comment_limit, comment_depth):
+        if 'reddit.com' in submission_id:
+            self.submission = reddit.submission(url=submission_id)
+        else:
+            self.submission = reddit.submission(id=submission_id)
+        self.submission.comments.replace_more(limit=None)
+        self.comment_limit = comment_limit
+        self.comment_depth = comment_depth
         self.collect()
         self.summarize()
 
     # "collect" function that collects data before summarizing it
     def collect(self):
-        # use the url of the submission to get data and convert it into a dictionary, then to an array of data
-        response = requests.get(f'{self.url}.json', headers = {'User-agent': 'your bot 0.1'}).json()
-        self.data = response[0]["data"]["children"][0]["data"]
-
-        # setting up praw to use it later in the "summarize" function
-        f = open('credentials.json')
-        client_info = json.load(f)
-        reddit = praw.Reddit(
-            client_id = client_info["client_id"],
-            client_secret = client_info["client_secret"],
-            user_agent = "user_agent.0.1.0",
-        )
-        self.submission = reddit.submission(url = self.url)
-        self.submission.comments.replace_more(limit=None)
+        self.id = self.submission.id
+        self.permalink = self.submission.permalink
+        self.title = self.submission.title
+        self.author = self.submission.author
+        self.text = self.submission.selftext
+        self.url = self.submission.url
+        if self.text == '':
+            if 'i.redd.it' in self.url:
+                if '.gif' in self.url:
+                    self.type = 'gif'
+                else:
+                    self.type = 'image'
+            elif 'v.redd.it' in self.url or 'youtu' in self.url:
+                self.type = 'video'
+            else:
+                self.type = 'link'                
+        else:
+            self.type = 'text'
+        self.poll_data = []
+        try:
+            for option in self.submission.poll_data.options:
+                current_option_data = {
+                    'Option ID': option.id,
+                    'Option Name': option.text
+                }
+                try:
+                    current_option_data['Option Vote Count'] = option.vote_count
+                except:
+                    pass
+                self.poll_data.append(current_option_data)
+            self.type = 'poll'
+        except:
+            pass
+        self.upvote_count = self.submission.score
+        self.upvote_ratio = self.submission.upvote_ratio
+        self.comment_count = self.submission.num_comments
+        self.created_time = datetime.datetime.fromtimestamp(self.submission.created_utc)
+        self.is_self = self.submission.is_self
+        self.is_edited = self.submission.edited
+        self.is_original_content = self.submission.is_original_content
+        self.is_NSFW = self.submission.over_18
+        self.is_spoiler = self.submission.spoiler
+        self.flair = self.submission.link_flair_text
         self.comments = []
+        self.most_upvotes_comment = ''
+        self.most_upvotes = 0
+        self.most_awards_comment = ''
+        self.most_awards = 0
+        self.ducplicates = []
+        for duplicate in self.submission.duplicates():
+            self.ducplicates.append(duplicate)
 
-        # recursive function that appends all comments within the depth set by the user to the "self.comments" list
-        def Comment_tree(current_level_comment_list, depth):
-            next_level_comments_list = []
-            for current_level_comment in current_level_comment_list:
-                self.comments.append(current_level_comment)
-                next_level_comments_list.extend(current_level_comment.replies)
-            if depth > 1:
-                Comment_tree(next_level_comments_list, depth - 1)
-
-        # adding all comments to the "self.comments" list if user set depth to 0, otherwise call the recusrive function "comment_tree"
-        if self.depth == 0:
+        def Comment_tree(current_level_comment_list, depth, collected_count):
+            if len(current_level_comment_list) != 0:
+                next_level_comments_list = []
+                for current_level_comment in current_level_comment_list:
+                    if collected_count != 0 and collected_count == self.comment_limit:
+                        break
+                    self.comments.append(current_level_comment)
+                    if current_level_comment.score > self.most_upvotes:
+                        self.most_upvotes = current_level_comment.score
+                        self.most_upvotes_comment = current_level_comment.body
+                    comment_awards = 0
+                    for value in current_level_comment.gildings.values():
+                        comment_awards += value
+                    if comment_awards > self.most_awards:
+                        self.most_awards = comment_awards
+                        self.most_awards_comment = current_level_comment.body
+                    collected_count += 1
+                    next_level_comments_list.extend(current_level_comment.replies)
+                if collected_count != self.comment_limit and (depth > 1 or depth < 1):
+                    Comment_tree(next_level_comments_list, depth - 1, collected_count)
+    
+        if self.comment_depth == 0 and self.comment_limit == 0:
             self.comments = self.submission.comments.list()
-        else:
-            Comment_tree(self.submission.comments, self.depth)
-
-    # "summarize" function that prints important data
-    def summarize(self):
-        
-        # Printing the type and content of the submission
-
-        # checking if the submission is a crosspost in order to get original tyoe and content from its parent
-        parent_data = self.data
-        if "crosspost_parent" in self.data:
-            response = requests.get(f"http://reddit.com/comments/{self.data['crosspost_parent'].replace('t3_', '')}.json", headers = {'User-agent': 'your bot 0.1'}).json()
-            parent_data = response[0]["data"]["children"][0]["data"]
-        # printing type of content in the submission and printing the content
-        if parent_data["selftext"] == '':
-            if 'i.redd.it' in parent_data["url_overridden_by_dest"]:        # if submission is an image
-                print("This submission is an image")
-                print(f"Content: {parent_data['url_overridden_by_dest']}")
-            elif 'v.redd.it' in parent_data["url_overridden_by_dest"]:      # if submission is a video directly posted to reddit
-                print("This submission is a video")
-                print(f"Content: {parent_data['secure_media']['reddit_video']['fallback_url']}")
-            elif 'youtu' in parent_data["url_overridden_by_dest"]:          # if submission is a youtube video posted to reddit
-                print("This submission is a video")
-                print(f"Content: {parent_data['url_overridden_by_dest']}")
-            else:                                                           # if submission is a link
-                print("This submission is a link")
-                print(f"Content: {parent_data['url_overridden_by_dest']}")                 
-        else:                                                               # if submission is text
-            print("This submission is a text")
-            print("Content: " + parent_data["selftext"])
-
-
-        # printing submission score and upvote ratio
-        print(f"Score: {str(self.data['score'])}")
-        print(f"Upvote ratio: {str(self.data['upvote_ratio'])}")
-
-
-        # Printing the amount of comments for the submission
-        if type(self.limit) is int:
-            print(f"This submission has {str(self.data['num_comments'])} comments, but the user set the limit of comments to analyse to {self.limit}.")
-        else:
-            print(f"This submission has {str(self.data['num_comments'])} comments.")
-        
-
-        # Printing comment with most awards
-        if len(self.comments) != 0:
-            comments_bodies = []
-            comments_awards = []
-            # getting award count for all comments
             for comment in self.comments:
-                comments_bodies.append(comment.body)
-                response = requests.get(f'https://www.reddit.com/api/info.json?id=t1_{comment.id}&utm_source=reddit&utm_medium=usertext&utm_name=redditdev&utm_content=t1_{comment.id}', headers = {'User-agent': 'your bot 0.1'}).json()
-                comments_awards.append(response["data"]["children"][0]["data"]["total_awards_received"])
-            max_awards = max(comments_awards)
-            # printing all comments that have the most awards if they all have that same number
-            if max_awards != 0:
-                for i,y in enumerate(comments_awards):
-                    if y == max_awards:
-                        print(f'The comment with the most awards is: "{comments_bodies[i]}"')
+                if comment.score > self.most_upvotes:
+                    self.most_upvotes = comment.score
+                    self.most_upvotes_comment = comment.body
+                comment_awards = 0
+                for value in comment.gildings.values():
+                    comment_awards += value
+                if comment_awards > self.most_awards:
+                    self.most_awards = comment_awards
+                    self.most_awards_comment = comment.body
+        else:
+            Comment_tree(self.submission.comments, self.comment_depth, collected_count = 0)
+        
 
-
-        # printing all comments that have the most upvotes if they all have that same number
-        if len(self.comments) != 0:
-            max_ups = max(comment.score for comment in self.comments)
-            if max_ups != 0:
-                for comment in self.comments:
-                    if comment.score == max_ups:
-                        print(f'The comment with the most upvotes is: "{comment.body}"')
+    # "summarize" function that prints collected data
+    def summarize(self):
+        print(f"ID: {self.id}")
+        print(f"Permalink: {self.permalink}")
+        print(f"Title: {self.title}")
+        print(f"Author: {self.author}")
+        print(f"Type: {self.type}")
+        if self.text != '':
+            print(f"Text: {self.text}")
+        if len(self.poll_data) != 0:
+            print(f"Poll Data: {self.poll_data}")
+        print(f"Url: {self.url}")
+        print(f"Upvote Count: {self.upvote_count}")
+        print(f"Upvote Ratio: {self.upvote_ratio}")
+        print(f"Comment Count: {self.comment_count}")
+        print(f"Created Time: {self.created_time}")
+        print(f"Is Self: {self.is_self}")
+        print(f"Is Edited: {self.is_edited}")
+        print(f"Is Original Content: {self.is_original_content}")
+        print(f"Is NSFW: {self.is_NSFW}")
+        print(f"Is Spoiler: {self.is_spoiler}")
+        print(f"Flair: {self.flair}")
+        print(f"Comments Collected For Analyse ({len(self.comments)}): {self.comments}")
+        if self.most_upvotes != 0:
+            print(f"The comment with most upvotes is '{self.most_upvotes_comment}' with {self.most_upvotes} upvotes.")
+        if self.most_awards != 0:
+            print(f"The comment with most awards is '{self.most_awards_comment}' with {self.most_awards} awards.")
+        if len(self.ducplicates) != 0:
+            print(f"Duplicates: {self.ducplicates}")
+        else:
+            print("This submission has no duplicates.")
