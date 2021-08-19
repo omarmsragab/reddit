@@ -1,4 +1,6 @@
-import datetime
+from serializers.subreddit import *
+from serializers.post import *
+
 
 class KeywordAnalyzer:
 
@@ -9,16 +11,14 @@ class KeywordAnalyzer:
         self.subreddit_limit = subreddit_limit
         self.post_limit = post_limit
         self.collect()
-        self.summarize()
     
     def collect(self):
-        self.subreddits = []
+        serialized_subreddits = []
         for subreddit in self.all_subreddits.search(self.keyword, limit=self.subreddit_limit):
-            self.subreddits.append(subreddit)
-        self.submissions = []
-        for submission in self.all_submissions.search(self.keyword, limit=self.post_limit):
-            self.submissions.append(submission)
+            serialized_subreddit = Subreddit(subreddit)
+            serialized_subreddits.append(serialized_subreddit)
 
-    def summarize(self):
-        print(f"Subreddits Collected ({len(self.subreddits)}): {self.subreddits}")
-        print(f"Submissions Collected ({len(self.submissions)}): {self.submissions}")
+        serialized_posts = []
+        for submission in self.all_submissions.search(self.keyword, limit=self.post_limit):
+            serialized_post = Post(submission)
+            serialized_posts.append(serialized_post)
